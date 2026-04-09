@@ -149,6 +149,23 @@ if section == "Upload STATA Data":
     st.markdown('<p class="upload-note">Upload a Stata <code>.dta</code> file from your survey, RCT, or baseline data collection. '
                 'The portal will parse and display the dataset for exploratory review.</p>', unsafe_allow_html=True)
 
+    # ── Show loaded dataset banner + remove button ──
+    if "wil_df" in st.session_state:
+        col_info, col_btn = st.columns([4, 1])
+        with col_info:
+            st.info(
+                f"📂 Currently loaded: **{st.session_state.get('wil_filename', 'dataset.dta')}** — "
+                f"{st.session_state['wil_df'].shape[0]:,} rows × {st.session_state['wil_df'].shape[1]} columns"
+            )
+        with col_btn:
+            st.markdown("<div style='padding-top:0.4rem'>", unsafe_allow_html=True)
+            if st.button("🗑️ Remove Dataset", type="secondary", use_container_width=True):
+                del st.session_state["wil_df"]
+                del st.session_state["wil_filename"]
+                st.rerun()
+            st.markdown("</div>", unsafe_allow_html=True)
+        st.markdown("---")
+
     uploaded = st.file_uploader("Choose a .dta file", type=["dta"],
                                 help="Supports Stata 13–19 format files. Max 200 MB.")
 
@@ -159,7 +176,7 @@ if section == "Upload STATA Data":
                 st.session_state["wil_df"] = df
                 st.session_state["wil_filename"] = uploaded.name
 
-            st.success(f"File loaded: **{uploaded.name}** — {df.shape[0]:,} rows × {df.shape[1]} columns")
+            st.success(f"✅ File loaded: **{uploaded.name}** — {df.shape[0]:,} rows × {df.shape[1]} columns")
 
             n_rows, n_cols = df.shape
             n_missing = int(df.isnull().sum().sum())
@@ -206,15 +223,16 @@ if section == "Upload STATA Data":
             st.error(f"Could not parse file: {e}")
             st.info("Make sure the file is a valid Stata `.dta` format (Stata 13–19).")
     else:
-        st.markdown("""
-        <div class="card" style="text-align:center;padding:2.5rem;border:2px dashed #c9a84c">
-            <div style="font-size:2.5rem">📂</div>
-            <p style="color:#6b7a8d;margin-top:.6rem">
-                Drag & drop or browse to upload your <strong>.dta</strong> STATA file.<br>
-                <span style="font-size:.8rem">Survey data · Baseline indicators · RCT datasets</span>
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
+        if "wil_df" not in st.session_state:
+            st.markdown("""
+            <div class="card" style="text-align:center;padding:2.5rem;border:2px dashed #c9a84c">
+                <div style="font-size:2.5rem">📂</div>
+                <p style="color:#6b7a8d;margin-top:.6rem">
+                    Drag & drop or browse to upload your <strong>.dta</strong> STATA file.<br>
+                    <span style="font-size:.8rem">Survey data · Baseline indicators · RCT datasets</span>
+                </p>
+            </div>
+            """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 2 · Data Explorer
