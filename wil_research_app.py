@@ -3,7 +3,6 @@ import pandas as pd
 import io
 import os
 
-# ── Page config ──────────────────────────────────────────────────────────────
 st.set_page_config(
     page_title="WiL · Research Data Portal",
     page_icon="🎓",
@@ -11,12 +10,10 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# ── Custom CSS ────────────────────────────────────────────────────────────────
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=DM+Sans:wght@300;400;500&display=swap');
 
-/* ── root palette ── */
 :root {
     --navy:   #0d1f3c;
     --teal:   #1a7a6e;
@@ -24,7 +21,6 @@ st.markdown("""
     --cream:  #f5f0e8;
     --white:  #ffffff;
     --mid:    #6b7a8d;
-    --light:  #e8ede6;
 }
 
 html, body, [class*="css"] {
@@ -33,7 +29,6 @@ html, body, [class*="css"] {
     color: var(--navy);
 }
 
-/* ── header banner ── */
 .hero {
     background: linear-gradient(135deg, var(--navy) 0%, #1c3557 60%, var(--teal) 100%);
     padding: 2.4rem 2.8rem 2rem;
@@ -76,20 +71,9 @@ html, body, [class*="css"] {
     margin-top: .5rem;
 }
 
-/* ── sidebar ── */
-[data-testid="stSidebar"] {
-    background-color: var(--navy) !important;
-}
-[data-testid="stSidebar"] * {
-    color: rgba(255,255,255,.88) !important;
-}
-[data-testid="stSidebar"] .stSelectbox label,
-[data-testid="stSidebar"] .stRadio label {
-    font-size: .83rem;
-    letter-spacing: .03em;
-}
+[data-testid="stSidebar"] { background-color: var(--navy) !important; }
+[data-testid="stSidebar"] * { color: rgba(255,255,255,.88) !important; }
 
-/* ── section card ── */
 .card {
     background: var(--white);
     border-radius: 10px;
@@ -107,7 +91,6 @@ html, body, [class*="css"] {
     padding-left: .7rem;
 }
 
-/* ── metric tiles ── */
 .metric-row { display: flex; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .metric-tile {
     flex: 1;
@@ -126,18 +109,8 @@ html, body, [class*="css"] {
 }
 .metric-tile .lbl { font-size: .75rem; opacity: .75; margin-top: .3rem; letter-spacing:.04em; text-transform:uppercase; }
 
-/* ── upload zone ── */
-.upload-note {
-    font-size: .82rem;
-    color: var(--mid);
-    margin-top: -.4rem;
-    margin-bottom: .8rem;
-}
-
-/* ── table ── */
+.upload-note { font-size: .82rem; color: var(--mid); margin-top: -.4rem; margin-bottom: .8rem; }
 .stDataFrame { border-radius: 8px; overflow: hidden; }
-
-/* ── footer ── */
 .footer {
     text-align: center;
     font-size: .75rem;
@@ -166,35 +139,27 @@ with st.sidebar:
     st.markdown("• Rohini Pande *(Faculty Director)*")
     st.markdown("• Simone Schaner *(Gender Lead)*")
     st.markdown("---")
-    st.markdown(
-        "<div style='font-size:.75rem;opacity:.6'><br>© 2026</div>",
-        unsafe_allow_html=True,
-    )
+    st.markdown("<div style='font-size:.75rem;opacity:.6'>© 2026</div>", unsafe_allow_html=True)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="hero">
   <div class="sub">Inclusion Economics India Centre · IFMR</div>
   <h1>Women in Leadership in Economics</h1>
-  <div>
-    <span class="badge">Research Data Portal</span>
-  </div>
+  <div><span class="badge">Research Data Portal</span></div>
 </div>
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 1 · Upload STATA
 # ═══════════════════════════════════════════════════════════════════════════════
-elif section == "Upload STATA Data":
+if section == "Upload STATA Data":
     st.markdown('<div class="card"><h3>Upload STATA Dataset (.dta)</h3></div>', unsafe_allow_html=True)
     st.markdown('<p class="upload-note">Upload a Stata <code>.dta</code> file from your survey, RCT, or baseline data collection. '
                 'The portal will parse and display the dataset for exploratory review.</p>', unsafe_allow_html=True)
 
-    uploaded = st.file_uploader(
-        "Choose a .dta file",
-        type=["dta"],
-        help="Supports Stata 13–19 format files. Max 200 MB.",
-    )
+    uploaded = st.file_uploader("Choose a .dta file", type=["dta"],
+                                help="Supports Stata 13–19 format files. Max 200 MB.")
 
     if uploaded is not None:
         try:
@@ -203,7 +168,6 @@ elif section == "Upload STATA Data":
 
             st.success(f"✅ File loaded: **{uploaded.name}** — {df.shape[0]:,} rows × {df.shape[1]} columns")
 
-            # Metrics
             n_rows, n_cols = df.shape
             n_missing = int(df.isnull().sum().sum())
             n_complete = n_rows - df.isnull().any(axis=1).sum()
@@ -218,7 +182,7 @@ elif section == "Upload STATA Data":
             </div>
             """, unsafe_allow_html=True)
 
-            tab1, tab2, tab3 = st.tabs(["🗃️ Preview", "📋 Variable Info", "📈 Summary Stats"])
+            tab1, tab2, tab3 = st.tabs(["Preview", "Variable Info", "Summary Stats"])
 
             with tab1:
                 n_preview = st.slider("Rows to preview", 5, min(100, n_rows), 20)
@@ -241,14 +205,9 @@ elif section == "Upload STATA Data":
                 else:
                     st.info("No numeric variables detected for summary statistics.")
 
-            # Download as CSV
             csv_buf = df.to_csv(index=False).encode("utf-8")
-            st.download_button(
-                "⬇️ Download as CSV",
-                data=csv_buf,
-                file_name=uploaded.name.replace(".dta", ".csv"),
-                mime="text/csv",
-            )
+            st.download_button("⬇️ Download as CSV", data=csv_buf,
+                               file_name=uploaded.name.replace(".dta", ".csv"), mime="text/csv")
 
         except Exception as e:
             st.error(f"Could not parse file: {e}")
@@ -265,7 +224,7 @@ elif section == "Upload STATA Data":
         """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 · Data Explorer (requires uploaded data in session)
+# SECTION 2 · Data Explorer
 # ═══════════════════════════════════════════════════════════════════════════════
 elif section == "Data Explorer":
     st.markdown('<div class="card"><h3>Data Explorer</h3>'
@@ -284,7 +243,8 @@ elif section == "Data Explorer":
     for i, (title, steps) in enumerate(workflows.items()):
         with cols[i]:
             steps_html = "".join(f"<li>{s}</li>" for s in steps)
-            st.markdown(f'<div class="card" style="min-height:160px"><h3>{title}</h3><ul style="font-size:.83rem;color:#6b7a8d">{steps_html}</ul></div>',
+            st.markdown(f'<div class="card" style="min-height:160px"><h3>{title}</h3>'
+                        f'<ul style="font-size:.83rem;color:#6b7a8d">{steps_html}</ul></div>',
                         unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
