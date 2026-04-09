@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import io
 import os
-from scipy import stats
 
 st.set_page_config(
     page_title="WiL · Research Data Portal",
