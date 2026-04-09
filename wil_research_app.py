@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import io
 import os
+from scipy import stats
 
 st.set_page_config(
     page_title="WiL · Research Data Portal",
@@ -399,7 +400,7 @@ elif section == "Data Explorer":
                         q1, q3 = float(s.quantile(0.25)), float(s.quantile(0.75))
                         if len(s) >= 3:
                             if len(s) <= 5000:
-                                _, norm_p = stats.shapiro(s)
+                                w_stat, norm_p = stats.shapiro(s.values)
                                 norm_txt = f"p = {norm_p:.4f}"
                                 norm_result = "Normal" if norm_p > 0.05 else "Non-normal"
                             else:
@@ -503,11 +504,11 @@ elif section == "Data Explorer":
                         for v in sel_vars:
                             s = df[v].dropna()
                             if 3 <= len(s) <= 5000:
-                                _, p = stats.shapiro(s)
+                                w_stat, p = stats.shapiro(s.values)
                                 norm_rows.append({
                                     "Variable": v,
                                     "N": len(s),
-                                    "W-stat": round(_, 4),
+                                    "W-stat": round(w_stat, 4),
                                     "p-value": round(p, 4),
                                     "Result": "✅ Normal" if p > 0.05 else "❌ Non-normal",
                                 })
@@ -547,11 +548,11 @@ elif section == "Data Explorer":
                                     pval_rows[v1][v2] = "—"
                                 elif len(pair) >= 3:
                                     if corr_method == "Pearson":
-                                        _, p = stats.pearsonr(pair[v1], pair[v2])
+                                        _, p = stats.pearsonr(pair[v1].values, pair[v2].values)
                                     elif corr_method == "Spearman":
-                                        _, p = stats.spearmanr(pair[v1], pair[v2])
+                                        _, p = stats.spearmanr(pair[v1].values, pair[v2].values)
                                     else:
-                                        _, p = stats.kendalltau(pair[v1], pair[v2])
+                                        _, p = stats.kendalltau(pair[v1].values, pair[v2].values)
                                     pval_rows[v1][v2] = round(p, 4)
                                 else:
                                     pval_rows[v1][v2] = "n/a"
@@ -649,7 +650,7 @@ elif section == "Data Explorer":
                                 c_ser = df[ctrl_mask][bv].dropna()
                                 if len(t_ser) < 2 or len(c_ser) < 2:
                                     continue
-                                t_stat, p_val = stats.ttest_ind(t_ser, c_ser, equal_var=False)
+                                t_stat, p_val = stats.ttest_ind(t_ser.values, c_ser.values, equal_var=False)
                                 std_pool = np.sqrt((t_ser.var() + c_ser.var()) / 2)
                                 smd = (t_ser.mean() - c_ser.mean()) / std_pool if std_pool > 0 else np.nan
                                 balance_rows.append({
@@ -684,7 +685,7 @@ elif section == "Data Explorer":
                                 if len(t_ser) < 2 or len(c_ser) < 2:
                                     continue
                                 ate = float(t_ser.mean() - c_ser.mean())
-                                t_stat, p_val = stats.ttest_ind(t_ser, c_ser, equal_var=False)
+                                t_stat, p_val = stats.ttest_ind(t_ser.values, c_ser.values, equal_var=False)
                                 se = float(np.sqrt(t_ser.var()/len(t_ser) + c_ser.var()/len(c_ser)))
                                 z = stats.norm.ppf(1 - alpha/2)
                                 ci_lo = ate - z * se
@@ -760,7 +761,7 @@ elif section == "Data Explorer":
                                     c_ser = df[ctrl_mask][ov].dropna()
                                     if len(t_ser) < 2 or len(c_ser) < 2:
                                         continue
-                                    u_stat, p_val = stats.mannwhitneyu(t_ser, c_ser, alternative="two-sided")
+                                    u_stat, p_val = stats.mannwhitneyu(t_ser.values, c_ser.values, alternative="two-sided")
                                     mw_rows.append({
                                         "Outcome": ov,
                                         "Median (T)": round(float(t_ser.median()), 4),
@@ -787,7 +788,7 @@ elif section == "Data Explorer":
                                     obs_t = df[treat_mask][ov].notna().astype(int)
                                     obs_c = df[ctrl_mask][ov].notna().astype(int)
                                     if obs_t.sum() + obs_c.sum() > 0:
-                                        t_stat, p_val = stats.ttest_ind(obs_t, obs_c)
+                                        t_stat, p_val = stats.ttest_ind(obs_t.values, obs_c.values)
                                     else:
                                         t_stat, p_val = np.nan, np.nan
                                     attr_rows.append({
