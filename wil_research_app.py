@@ -130,7 +130,8 @@ with st.sidebar:
     section = st.radio(
         "Navigate",
         ["Upload STATA Data", "Data Explorer", "Indicators Tracker"],
-        index=0,)
+        index=0,
+    )
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown("""
@@ -155,8 +156,10 @@ if section == "Upload STATA Data":
         try:
             with st.spinner("Parsing STATA file…"):
                 df = pd.read_stata(uploaded)
+                st.session_state["wil_df"] = df
+                st.session_state["wil_filename"] = uploaded.name
 
-            st.success(f"✅ File loaded: **{uploaded.name}** — {df.shape[0]:,} rows × {df.shape[1]} columns")
+            st.success(f"File loaded: **{uploaded.name}** — {df.shape[0]:,} rows × {df.shape[1]} columns")
 
             n_rows, n_cols = df.shape
             n_missing = int(df.isnull().sum().sum())
@@ -205,7 +208,7 @@ if section == "Upload STATA Data":
     else:
         st.markdown("""
         <div class="card" style="text-align:center;padding:2.5rem;border:2px dashed #c9a84c">
-            <div style="font-size:2.5rem"></div>
+            <div style="font-size:2.5rem">📂</div>
             <p style="color:#6b7a8d;margin-top:.6rem">
                 Drag & drop or browse to upload your <strong>.dta</strong> STATA file.<br>
                 <span style="font-size:.8rem">Survey data · Baseline indicators · RCT datasets</span>
@@ -217,25 +220,69 @@ if section == "Upload STATA Data":
 # SECTION 2 · Data Explorer
 # ═══════════════════════════════════════════════════════════════════════════════
 elif section == "Data Explorer":
-    st.markdown('<div class="card"><h3>Data Explorer</h3>'
-                '<p style="color:#6b7a8d;font-size:.88rem">Upload a .dta file in the <em>Upload STATA Data</em> section first, '
-                'then return here to explore variables and distributions.</p></div>',
-                unsafe_allow_html=True)
-    st.info("💡 Tip: Upload your STATA dataset first, then use this section to filter, group, and analyse variables relevant to gender representation tracking.")
+    st.markdown('<div class="card"><h3>Data Explorer</h3></div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="card"><h3>Suggested Analysis Workflows</h3></div>', unsafe_allow_html=True)
-    workflows = {
-        "Gender Gap Baseline": ["Compute share of women by institution type", "Cross-tab by seniority level & discipline", "Map missing values in demographic fields"],
-        "Survey Quality Checks": ["Check skip-logic consistency (SurveyCTO exports)", "Flag outliers in continuous measures", "Review interviewer-level completion rates"],
-        "RCT Balance Check": ["Compare treatment vs control on covariates", "Verify randomisation strata", "Test for attrition bias"],
-    }
-    cols = st.columns(3)
-    for i, (title, steps) in enumerate(workflows.items()):
-        with cols[i]:
-            steps_html = "".join(f"<li>{s}</li>" for s in steps)
-            st.markdown(f'<div class="card" style="min-height:160px"><h3>{title}</h3>'
-                        f'<ul style="font-size:.83rem;color:#6b7a8d">{steps_html}</ul></div>',
-                        unsafe_allow_html=True)
+    if "wil_df" not in st.session_state:
+        st.warning("No dataset loaded yet. Please upload a `.dta` file in the **Upload STATA Data** section first.")
+    else:
+        df = st.session_state["wil_df"]
+        fname = st.session_state.get("wil_filename", "dataset.dta")
+        st.success(f"📂 Using: **{fname}** — {df.shape[0]:,} rows × {df.shape[1]} columns")
+
+        tab1, tab2, tab3 = st.tabs(["Filter & Browse", "Distribution", "Cross-tab"])
+
+        # ── Tab 1: Filter & Browse ──
+        with tab1:
+            cat_cols = df.select_dtypes(include=["object", "category"]).columns.tolist()
+            filter_col = st.selectbox("Filter by column (optional)", ["— None —"] + cat_cols)
+            filtered_df = df.copy()
+            if filter_col != "— None —":
+                vals = df[filter_col].dropna().unique().tolist()
+                chosen = st.multiselect(f"Select values for **{filter_col}**", vals, default=vals[:3])
+                if chosen:
+                    filtered_df = df[df[filter_col].isin(chosen)]
+            st.markdown(f"<small style='color:#6b7a8d'>Showing {len(filtered_df):,} of {len(df):,} rows</small>", unsafe_allow_html=True)
+            n_preview = st.slider("Rows to show", 5, min(200, len(filtered_df)), 20, key="explorer_slider")
+            st.dataframe(filtered_df.head(n_preview), use_container_width=True)
+
+            csv_buf = filtered_df.to_csv(index=False).encode("utf-8")
+            st.download_button("⬇️ Download filtered CSV", data=csv_buf,
+                               file_name=fname.replace(".dta", "_filtered.csv"), mime="text/csv")
+
+        # ── Tab 2: Distribution ──
+        with tab2:
+            num_cols = df.select_dtypes(include="number").columns.tolist()
+            cat_cols2 = df.select_dtypes(include=["object", "category"]).columns.tolist()
+
+            col_a, col_b = st.columns(2)
+            with col_a:
+                if num_cols:
+                    num_var = st.selectbox("Numeric variable", num_cols)
+                    st.bar_chart(df[num_var].dropna().value_counts().sort_index())
+                else:
+                    st.info("No numeric columns found.")
+            with col_b:
+                if cat_cols2:
+                    cat_var = st.selectbox("Categorical variable", cat_cols2)
+                    vc = df[cat_var].value_counts().reset_index()
+                    vc.columns = [cat_var, "Count"]
+                    st.dataframe(vc, use_container_width=True, hide_index=True)
+                else:
+                    st.info("No categorical columns found.")
+
+        # ── Tab 3: Cross-tab ──
+        with tab3:
+            all_cols = df.columns.tolist()
+            c1, c2 = st.columns(2)
+            with c1:
+                row_var = st.selectbox("Row variable", all_cols, index=0)
+            with c2:
+                col_var = st.selectbox("Column variable", all_cols, index=min(1, len(all_cols)-1))
+            if row_var != col_var:
+                ct = pd.crosstab(df[row_var], df[col_var])
+                st.dataframe(ct, use_container_width=True)
+            else:
+                st.warning("Please select two different variables.")
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # SECTION 3 · Indicators Tracker
