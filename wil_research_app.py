@@ -131,20 +131,10 @@ with st.sidebar:
         "Navigate",
         ["Upload STATA Data", "Data Explorer", "Indicators Tracker"],
         index=0,
-    )
-    st.markdown("---")
-    st.markdown("**Principal Investigators**")
-    st.markdown("• Subarna Banerjee *(Post-Doc Fellow)*")
-    st.markdown("• Charity Troyer Moore *(Sci. Director)*")
-    st.markdown("• Rohini Pande *(Faculty Director)*")
-    st.markdown("• Simone Schaner *(Gender Lead)*")
-    st.markdown("---")
-    st.markdown("<div style='font-size:.75rem;opacity:.6'>© 2026</div>", unsafe_allow_html=True)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="hero">
-  <div class="sub">Inclusion Economics India Centre · IFMR</div>
   <h1>Women in Leadership in Economics</h1>
   <div><span class="badge">Research Data Portal</span></div>
 </div>
@@ -206,7 +196,7 @@ if section == "Upload STATA Data":
                     st.info("No numeric variables detected for summary statistics.")
 
             csv_buf = df.to_csv(index=False).encode("utf-8")
-            st.download_button("⬇️ Download as CSV", data=csv_buf,
+            st.download_button("Download as CSV", data=csv_buf,
                                file_name=uploaded.name.replace(".dta", ".csv"), mime="text/csv")
 
         except Exception as e:
@@ -215,7 +205,7 @@ if section == "Upload STATA Data":
     else:
         st.markdown("""
         <div class="card" style="text-align:center;padding:2.5rem;border:2px dashed #c9a84c">
-            <div style="font-size:2.5rem">📂</div>
+            <div style="font-size:2.5rem"></div>
             <p style="color:#6b7a8d;margin-top:.6rem">
                 Drag & drop or browse to upload your <strong>.dta</strong> STATA file.<br>
                 <span style="font-size:.8rem">Survey data · Baseline indicators · RCT datasets</span>
