@@ -151,12 +151,12 @@ html, body, [class*="css"] {
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.markdown("## 🎓 WiL Portal")
+    st.markdown("## WiL Portal")
     st.markdown("**Women in Leadership in Economics**")
     st.markdown("---")
     section = st.radio(
         "Navigate",
-        ["📋 Initiative Overview", "📤 Upload STATA Data", "📊 Data Explorer", "📝 Indicators Tracker"],
+        ["Upload STATA Data", "Data Explorer", "Indicators Tracker"],
         index=0,
     )
     st.markdown("---")
@@ -185,58 +185,9 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 1 · Overview
+# SECTION 1 · Upload STATA
 # ═══════════════════════════════════════════════════════════════════════════════
-if section == "📋 Initiative Overview":
-    st.markdown('<div class="card"><h3>About the WiL Initiative</h3>'
-                '<p>The <strong>Women in Leadership in Economics (WiL)</strong> initiative seeks to '
-                'understand and advance women\'s representation in leadership roles across economics '
-                'and public policy in India. It operates in collaboration with '
-                '<strong>Inclusion Economics at Yale University (YIE)</strong>.</p></div>',
-                unsafe_allow_html=True)
-
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown('<div class="card"><h3>Research Focus Areas</h3>'
-                    '<ul>'
-                    '<li>Gender gaps in economics academia & institutions</li>'
-                    '<li>Survey instruments & baseline indicators</li>'
-                    '<li>Programme impact evaluation (RCTs)</li>'
-                    '<li>Landscape analyses & stakeholder mapping</li>'
-                    '<li>Policy briefs & knowledge products</li>'
-                    '</ul></div>', unsafe_allow_html=True)
-    with col2:
-        st.markdown('<div class="card"><h3>Role: Research Associate</h3>'
-                    '<ul>'
-                    '<li>📍 <strong>Location:</strong> New Delhi, India</li>'
-                    '<li>🕐 <strong>Commitment:</strong> 1–2 Years (Full-time)</li>'
-                    '<li>🎓 <strong>Min. Qualification:</strong> B.A./M.A. Economics / Policy</li>'
-                    '<li>🛠️ <strong>Core Tools:</strong> Stata, Python/R, SurveyCTO</li>'
-                    '<li>🌐 <strong>Languages:</strong> English & Hindi</li>'
-                    '</ul></div>', unsafe_allow_html=True)
-
-    st.markdown('<div class="card"><h3>Key Responsibilities</h3></div>', unsafe_allow_html=True)
-    responsibilities = [
-        ("📐", "Survey Design", "Design and pilot survey instruments to measure women's representation in Indian economics."),
-        ("📊", "Baseline Indicators", "Develop data collection frameworks to track gender gaps and assess programmatic impact."),
-        ("🔍", "Desk Research", "Map stakeholders, key events, academic calendars, and resources for early-career economists."),
-        ("📝", "Knowledge Products", "Compile resources and literature reviews; monitor policy developments and emerging research."),
-        ("📣", "Policy Outreach", "Contribute to policy briefs, research summaries, and advocacy outputs."),
-        ("🗂️", "Programme Support", "Assist with logistics, feedback mechanisms, and initiative events."),
-    ]
-    cols = st.columns(3)
-    for i, (icon, title, desc) in enumerate(responsibilities):
-        with cols[i % 3]:
-            st.markdown(f'<div class="card" style="min-height:130px">'
-                        f'<div style="font-size:1.6rem">{icon}</div>'
-                        f'<strong>{title}</strong><br>'
-                        f'<span style="font-size:.83rem;color:#6b7a8d">{desc}</span>'
-                        f'</div>', unsafe_allow_html=True)
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 2 · Upload STATA
-# ═══════════════════════════════════════════════════════════════════════════════
-elif section == "📤 Upload STATA Data":
+elif section == "Upload STATA Data":
     st.markdown('<div class="card"><h3>Upload STATA Dataset (.dta)</h3></div>', unsafe_allow_html=True)
     st.markdown('<p class="upload-note">Upload a Stata <code>.dta</code> file from your survey, RCT, or baseline data collection. '
                 'The portal will parse and display the dataset for exploratory review.</p>', unsafe_allow_html=True)
@@ -316,9 +267,9 @@ elif section == "📤 Upload STATA Data":
         """, unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 3 · Data Explorer (requires uploaded data in session)
+# SECTION 2 · Data Explorer (requires uploaded data in session)
 # ═══════════════════════════════════════════════════════════════════════════════
-elif section == "📊 Data Explorer":
+elif section == "Data Explorer":
     st.markdown('<div class="card"><h3>Data Explorer</h3>'
                 '<p style="color:#6b7a8d;font-size:.88rem">Upload a .dta file in the <em>Upload STATA Data</em> section first, '
                 'then return here to explore variables and distributions.</p></div>',
@@ -339,9 +290,9 @@ elif section == "📊 Data Explorer":
                         unsafe_allow_html=True)
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# SECTION 4 · Indicators Tracker
+# SECTION 3 · Indicators Tracker
 # ═══════════════════════════════════════════════════════════════════════════════
-elif section == "📝 Indicators Tracker":
+elif section == "Indicators Tracker":
     st.markdown('<div class="card"><h3>Baseline Indicators Tracker</h3>'
                 '<p style="font-size:.88rem;color:#6b7a8d">Track the status of WiL\'s core gender-gap metrics across data collection waves.</p>'
                 '</div>', unsafe_allow_html=True)
@@ -383,6 +334,6 @@ elif section == "📝 Indicators Tracker":
 
 # ── Footer ────────────────────────────────────────────────────────────────────
 st.markdown(
-    '<div class="footer">Women in Leadership in Economics · Inclusion Economics India Centre · IFMR · Yale University · © 2026</div>',
+    '<div class="footer">Women in Leadership in Economics</div>',
     unsafe_allow_html=True,
 )
