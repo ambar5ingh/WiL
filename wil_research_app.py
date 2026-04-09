@@ -130,7 +130,7 @@ with st.sidebar:
     section = st.radio(
         "Navigate",
         ["Upload STATA Data", "Data Explorer", "Indicators Tracker"],
-        index=0,
+        index=0,)
 
 # ── Hero ──────────────────────────────────────────────────────────────────────
 st.markdown("""
