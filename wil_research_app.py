@@ -167,7 +167,7 @@ with st.sidebar:
     st.markdown("• Simone Schaner *(Gender Lead)*")
     st.markdown("---")
     st.markdown(
-        "<div style='font-size:.75rem;opacity:.6'>IEIC · IFMR · Yale University<br>© 2026</div>",
+        "<div style='font-size:.75rem;opacity:.6'><br>© 2026</div>",
         unsafe_allow_html=True,
     )
 
@@ -178,8 +178,6 @@ st.markdown("""
   <h1>Women in Leadership in Economics</h1>
   <div>
     <span class="badge">Research Data Portal</span>
-    <span class="badge">New Delhi, India</span>
-    <span class="badge">Yale Affiliated</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
