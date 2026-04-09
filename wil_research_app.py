@@ -3,7 +3,6 @@ import pandas as pd
 import numpy as np
 import io
 import os
-from scipy import stats
 
 st.set_page_config(
     page_title="WiL · Research Data Portal",
@@ -165,6 +164,142 @@ html, body, [class*="css"] {
 </style>
 """, unsafe_allow_html=True)
 
+# ── Pure numpy/pandas stat helpers (no scipy) ─────────────────────────────────
+
+def _erf(x):
+    """Abramowitz & Stegun erf approximation, max error 1.5e-7."""
+    t = 1.0 / (1.0 + 0.3275911 * abs(x))
+    poly = t * (0.254829592 + t * (-0.284496736 + t * (1.421413741 + t * (-1.453152027 + t * 1.061405429))))
+    result = 1.0 - poly * np.exp(-x * x)
+    return result if x >= 0 else -result
+
+def _norm_cdf(z):
+    return 0.5 * (1.0 + _erf(z / np.sqrt(2)))
+
+def norm_ppf(p):
+    """Rational approximation of inverse normal CDF."""
+    if p <= 0: return -np.inf
+    if p >= 1: return np.inf
+    if p < 0.5:
+        t = np.sqrt(-2.0 * np.log(p))
+    else:
+        t = np.sqrt(-2.0 * np.log(1.0 - p))
+    c = [2.515517, 0.802853, 0.010328]
+    d = [1.432788, 0.189269, 0.001308]
+    val = t - (c[0] + c[1]*t + c[2]*t**2) / (1.0 + d[0]*t + d[1]*t**2 + d[2]*t**3)
+    return -val if p < 0.5 else val
+
+def _lgamma(x):
+    if x < 7:
+        return _lgamma(x + 1) - np.log(x)
+    return (x - 0.5)*np.log(x) - x + 0.5*np.log(2*np.pi) + 1.0/(12*x)
+
+def _betainc(a, b, x, steps=150):
+    """Regularised incomplete beta via continued fraction (Lentz)."""
+    if x <= 0: return 0.0
+    if x >= 1: return 1.0
+    lbeta = _lgamma(a) + _lgamma(b) - _lgamma(a + b)
+    front = np.exp(np.log(x)*a + np.log(1-x)*b - lbeta) / a
+    f = 1.0; C = 1.0
+    D = 1.0 - (a+b)*x/(a+1)
+    D = 1.0/D if abs(D) > 1e-30 else 1e30
+    f = D
+    for m in range(1, steps + 1):
+        num = m*(b-m)*x / ((a+2*m-1)*(a+2*m))
+        D = 1.0 + num*D; D = 1.0/D if abs(D) > 1e-30 else 1e30
+        C = 1.0 + num/C if abs(C) > 1e-30 else 1e30
+        f *= C * D
+        num = -(a+m)*(a+b+m)*x / ((a+2*m)*(a+2*m+1))
+        D = 1.0 + num*D; D = 1.0/D if abs(D) > 1e-30 else 1e30
+        C = 1.0 + num/C if abs(C) > 1e-30 else 1e30
+        f *= C * D
+    return front * f
+
+def _t_cdf_upper(t, df):
+    x = df / (df + t*t)
+    return 0.5 * _betainc(df/2, 0.5, x)
+
+def t_interval(confidence, n, mean, se):
+    """Two-sided t confidence interval."""
+    alpha = 1.0 - confidence
+    # t critical via normal approx + Cornish-Fisher correction
+    z = norm_ppf(1.0 - alpha/2)
+    t_crit = z + (z**3 + z) / (4.0 * (n - 1))
+    return mean - t_crit * se, mean + t_crit * se
+
+def welch_ttest(a, b):
+    """Welch's two-sample t-test."""
+    a, b = np.asarray(a, dtype=float), np.asarray(b, dtype=float)
+    n1, n2 = len(a), len(b)
+    v1, v2 = np.var(a, ddof=1), np.var(b, ddof=1)
+    se = np.sqrt(v1/n1 + v2/n2)
+    if se == 0:
+        return 0.0, 1.0
+    t = (np.mean(a) - np.mean(b)) / se
+    df = (v1/n1 + v2/n2)**2 / ((v1/n1)**2/(n1-1) + (v2/n2)**2/(n2-1))
+    p = 2.0 * _t_cdf_upper(abs(t), df)
+    return float(t), float(p)
+
+def pearson_r(x, y):
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    n = len(x)
+    if n < 3: return np.nan, np.nan
+    xm, ym = x - x.mean(), y - y.mean()
+    denom = np.sqrt((xm**2).sum() * (ym**2).sum())
+    if denom == 0: return np.nan, np.nan
+    r = float(np.clip((xm*ym).sum() / denom, -1, 1))
+    t = r * np.sqrt((n-2) / max(1 - r**2, 1e-15))
+    p = 2.0 * _t_cdf_upper(abs(t), n-2)
+    return r, float(p)
+
+def spearman_r(x, y):
+    rx = pd.Series(np.asarray(x, float)).rank().values
+    ry = pd.Series(np.asarray(y, float)).rank().values
+    return pearson_r(rx, ry)
+
+def kendall_tau(x, y):
+    x, y = np.asarray(x, float), np.asarray(y, float)
+    n = len(x)
+    if n < 3: return np.nan, np.nan
+    con = dis = 0
+    for i in range(n):
+        for j in range(i+1, n):
+            s = np.sign(x[i]-x[j]) * np.sign(y[i]-y[j])
+            if s > 0: con += 1
+            elif s < 0: dis += 1
+    tau = (con - dis) / (0.5 * n * (n-1))
+    var_tau = (2*(2*n+5)) / (9*n*(n-1))
+    z = tau / np.sqrt(var_tau) if var_tau > 0 else 0.0
+    p = 2.0 * (1.0 - _norm_cdf(abs(z)))
+    return float(tau), float(p)
+
+def mann_whitney_u(a, b):
+    a, b = np.asarray(a, float), np.asarray(b, float)
+    n1, n2 = len(a), len(b)
+    u1 = sum(1 if ai > bi else 0.5 if ai == bi else 0 for ai in a for bi in b)
+    u = min(u1, n1*n2 - u1)
+    mu = n1*n2 / 2.0
+    sigma = np.sqrt(n1*n2*(n1+n2+1) / 12.0)
+    if sigma == 0: return u, 1.0
+    z = (u - mu) / sigma
+    p = 2.0 * (1.0 - _norm_cdf(abs(z)))
+    return float(u), float(p)
+
+def normality_test(x):
+    """Jarque-Bera normality test. Returns (statistic, p_value)."""
+    x = np.asarray(x, float)
+    n = len(x)
+    if n < 3: return np.nan, np.nan
+    s = pd.Series(x)
+    skew = float(s.skew())
+    kurt = float(s.kurtosis())  # excess kurtosis
+    jb = (n / 6.0) * (skew**2 + (kurt**2) / 4.0)
+    # chi-sq(2) upper tail: p = exp(-jb/2) * (1 + jb/2) for small jb else exp(-jb/2)
+    p = float(np.exp(-jb/2.0) * (1.0 + jb/2.0)) if jb < 10 else float(np.exp(-jb/2.0))
+    p = min(max(p, 0.0), 1.0)
+    return round(jb, 4), round(p, 4)
+
+
 # ── Sidebar ───────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.markdown("## WiL Portal")
@@ -300,7 +435,6 @@ elif section == "Data Explorer":
             "🧪 RCT Analysis",
         ])
 
-        # ── Tab 1: Filter & Browse ──────────────────────────────────────────
         with tab1:
             filter_col = st.selectbox("Filter by column (optional)", ["— None —"] + cat_cols)
             filtered_df = df.copy()
@@ -317,7 +451,6 @@ elif section == "Data Explorer":
             st.download_button("⬇️ Download filtered CSV", data=csv_buf,
                                file_name=fname.replace(".dta", "_filtered.csv"), mime="text/csv")
 
-        # ── Tab 2: Distribution ─────────────────────────────────────────────
         with tab2:
             col_a, col_b = st.columns(2)
             with col_a:
@@ -335,7 +468,6 @@ elif section == "Data Explorer":
                 else:
                     st.info("No categorical columns found.")
 
-        # ── Tab 3: Cross-tab ────────────────────────────────────────────────
         with tab3:
             all_cols = df.columns.tolist()
             c1, c2 = st.columns(2)
@@ -349,9 +481,7 @@ elif section == "Data Explorer":
             else:
                 st.warning("Please select two different variables.")
 
-        # ══════════════════════════════════════════════════════════════════════
-        # Tab 4 · DATA ANALYSIS
-        # ══════════════════════════════════════════════════════════════════════
+        # ── Tab 4: Data Analysis ────────────────────────────────────────────
         with tab4:
             st.markdown("""
             <div style="background:linear-gradient(135deg,#0d1f3c,#1c3557);
@@ -372,11 +502,9 @@ elif section == "Data Explorer":
                 analysis_mode = st.radio(
                     "Analysis mode",
                     ["Single Variable", "Multi-Variable Summary", "Pairwise Correlation"],
-                    horizontal=True,
-                    key="da_mode"
+                    horizontal=True, key="da_mode"
                 )
 
-                # ── Single Variable ──────────────────────────────────────────
                 if analysis_mode == "Single Variable":
                     col_l, col_r = st.columns([2, 2])
                     with col_l:
@@ -384,7 +512,6 @@ elif section == "Data Explorer":
                     with col_r:
                         grp_by = st.selectbox("Group by (optional)", ["— None —"] + cat_cols, key="da_grp")
 
-                    # Build series list
                     series_list, labels = [], []
                     if grp_by != "— None —":
                         for g in df[grp_by].dropna().unique():
@@ -397,39 +524,38 @@ elif section == "Data Explorer":
                         labels = ["All observations"]
 
                     def describe_series(s, label):
-                        q1, q3 = float(s.quantile(0.25)), float(s.quantile(0.75))
-                        if len(s) >= 3:
-                            if len(s) <= 5000:
-                                w_stat, norm_p = stats.shapiro(s.values)
-                                norm_txt = f"p = {norm_p:.4f}"
-                                norm_result = "Normal" if norm_p > 0.05 else "Non-normal"
-                            else:
-                                norm_txt = "n > 5,000 (skipped)"
-                                norm_result = "—"
+                        arr = s.values.astype(float)
+                        n = len(arr)
+                        q1, q3 = float(np.percentile(arr, 25)), float(np.percentile(arr, 75))
+                        if n >= 3 and n <= 5000:
+                            jb, norm_p = normality_test(arr)
+                            norm_txt = f"JB={jb}, p≈{norm_p}"
+                            norm_result = "Normal" if norm_p > 0.05 else "Non-normal"
+                        elif n > 5000:
+                            norm_txt = "n > 5,000 (skipped)"
+                            norm_result = "—"
                         else:
                             norm_txt = "n < 3"
                             norm_result = "—"
                         return {
                             "Group": label,
-                            "N": len(s),
-                            "Mean": round(float(s.mean()), 4),
-                            "Std Dev": round(float(s.std()), 4),
-                            "Std Error": round(float(s.sem()), 4),
-                            "Median": round(float(s.median()), 4),
-                            "Min": round(float(s.min()), 4),
-                            "Max": round(float(s.max()), 4),
+                            "N": n,
+                            "Mean": round(float(arr.mean()), 4),
+                            "Std Dev": round(float(arr.std(ddof=1)), 4),
+                            "Std Error": round(float(arr.std(ddof=1) / np.sqrt(n)), 4),
+                            "Median": round(float(np.median(arr)), 4),
+                            "Min": round(float(arr.min()), 4),
+                            "Max": round(float(arr.max()), 4),
                             "Q1 (25%)": round(q1, 4),
                             "Q3 (75%)": round(q3, 4),
                             "IQR": round(q3 - q1, 4),
-                            "Skewness": round(float(s.skew()), 4),
-                            "Kurtosis": round(float(s.kurtosis()), 4),
-                            "Shapiro-Wilk": norm_txt,
+                            "Skewness": round(float(pd.Series(arr).skew()), 4),
+                            "Kurtosis": round(float(pd.Series(arr).kurtosis()), 4),
+                            "Normality (JB)": norm_txt,
                             "Normality": norm_result,
                         }
 
                     rows = [describe_series(s, lbl) for s, lbl in zip(series_list, labels)]
-
-                    # Quick-glance tiles for first group
                     r = rows[0]
                     st.markdown(f"""
                     <div class="metric-row" style="margin-top:.8rem">
@@ -446,89 +572,77 @@ elif section == "Data Explorer":
                     stats_df = pd.DataFrame(rows)
                     st.dataframe(stats_df.set_index("Group").T, use_container_width=True)
 
-                    # Confidence interval
                     st.markdown('<p class="section-label">Confidence interval for mean</p>', unsafe_allow_html=True)
                     ci_level = st.slider("Confidence level (%)", 80, 99, 95, key="ci_level") / 100
                     ci_rows = []
                     for s, lbl in zip(series_list, labels):
-                        if len(s) >= 2:
-                            ci = stats.t.interval(ci_level, df=len(s)-1, loc=s.mean(), scale=s.sem())
+                        arr = s.values.astype(float)
+                        if len(arr) >= 2:
+                            mean = arr.mean()
+                            se = arr.std(ddof=1) / np.sqrt(len(arr))
+                            ci_lo, ci_hi = t_interval(ci_level, len(arr), mean, se)
                             ci_rows.append({
                                 "Group": lbl,
-                                "N": len(s),
-                                "Mean": round(s.mean(), 4),
-                                f"CI Lower ({int(ci_level*100)}%)": round(ci[0], 4),
-                                f"CI Upper ({int(ci_level*100)}%)": round(ci[1], 4),
-                                "Margin of Error": round((ci[1]-ci[0])/2, 4),
+                                "N": len(arr),
+                                "Mean": round(mean, 4),
+                                f"CI Lower ({int(ci_level*100)}%)": round(ci_lo, 4),
+                                f"CI Upper ({int(ci_level*100)}%)": round(ci_hi, 4),
+                                "Margin of Error": round((ci_hi - ci_lo) / 2, 4),
                             })
                     if ci_rows:
                         st.dataframe(pd.DataFrame(ci_rows), use_container_width=True, hide_index=True)
 
                     st.markdown('<p class="section-label">Distribution chart</p>', unsafe_allow_html=True)
-                    chart_data = pd.concat(
-                        [s.rename(lbl) for s, lbl in zip(series_list, labels)], axis=1
-                    )
+                    chart_data = pd.concat([s.rename(lbl) for s, lbl in zip(series_list, labels)], axis=1)
                     st.bar_chart(chart_data.apply(lambda c: c.value_counts().sort_index()).fillna(0))
 
-                # ── Multi-Variable Summary ────────────────────────────────────
                 elif analysis_mode == "Multi-Variable Summary":
                     sel_vars = st.multiselect(
                         "Choose variables", num_cols,
-                        default=num_cols[:min(5, len(num_cols))],
-                        key="da_multi"
+                        default=num_cols[:min(5, len(num_cols))], key="da_multi"
                     )
                     if sel_vars:
                         sub = df[sel_vars].dropna()
-
                         def q25(x): return x.quantile(.25)
                         def q75(x): return x.quantile(.75)
-
                         summary = sub.agg(["count", "mean", "std", "sem",
-                                           "median", "min", "max",
-                                           q25, q75, "skew", "kurt"]).T
+                                           "median", "min", "max", q25, q75, "skew", "kurt"]).T
                         summary.columns = ["N", "Mean", "Std Dev", "Std Error",
-                                           "Median", "Min", "Max",
-                                           "Q1 (25%)", "Q3 (75%)",
+                                           "Median", "Min", "Max", "Q1 (25%)", "Q3 (75%)",
                                            "Skewness", "Kurtosis"]
                         summary["IQR"] = summary["Q3 (75%)"] - summary["Q1 (25%)"]
                         summary["CV (%)"] = (summary["Std Dev"] / summary["Mean"].abs() * 100).round(2)
-
                         st.dataframe(summary.round(4), use_container_width=True)
                         csv_buf = summary.round(4).to_csv().encode("utf-8")
                         st.download_button("⬇️ Download summary CSV", csv_buf,
                                            file_name="descriptive_stats.csv", mime="text/csv")
 
-                        # Normality test for all selected
-                        st.markdown('<p class="section-label">Shapiro-Wilk normality test</p>', unsafe_allow_html=True)
+                        st.markdown('<p class="section-label">Normality test (Jarque-Bera)</p>',
+                                    unsafe_allow_html=True)
                         norm_rows = []
                         for v in sel_vars:
-                            s = df[v].dropna()
-                            if 3 <= len(s) <= 5000:
-                                w_stat, p = stats.shapiro(s.values)
+                            arr = df[v].dropna().values.astype(float)
+                            if 3 <= len(arr) <= 5000:
+                                jb, p = normality_test(arr)
                                 norm_rows.append({
-                                    "Variable": v,
-                                    "N": len(s),
-                                    "W-stat": round(w_stat, 4),
-                                    "p-value": round(p, 4),
+                                    "Variable": v, "N": len(arr),
+                                    "JB stat": jb, "p-value (approx)": p,
                                     "Result": "✅ Normal" if p > 0.05 else "❌ Non-normal",
                                 })
                             else:
-                                norm_rows.append({"Variable": v, "N": len(s),
-                                                  "W-stat": "—", "p-value": "—",
+                                norm_rows.append({"Variable": v, "N": len(arr),
+                                                  "JB stat": "—", "p-value (approx)": "—",
                                                   "Result": "n out of range"})
                         st.dataframe(pd.DataFrame(norm_rows), use_container_width=True, hide_index=True)
                     else:
                         st.info("Select at least one variable above.")
 
-                # ── Pairwise Correlation ──────────────────────────────────────
                 elif analysis_mode == "Pairwise Correlation":
                     sel_vars = st.multiselect(
                         "Choose variables", num_cols,
-                        default=num_cols[:min(6, len(num_cols))],
-                        key="da_corr"
+                        default=num_cols[:min(6, len(num_cols))], key="da_corr"
                     )
                     corr_method = st.radio("Method", ["Pearson", "Spearman", "Kendall"], horizontal=True)
-
                     if len(sel_vars) >= 2:
                         corr_df = df[sel_vars].corr(method=corr_method.lower()).round(3)
                         st.markdown('<p class="section-label">Correlation matrix (colour-coded)</p>',
@@ -537,7 +651,6 @@ elif section == "Data Explorer":
                             corr_df.style.background_gradient(cmap="RdYlGn", vmin=-1, vmax=1),
                             use_container_width=True
                         )
-
                         st.markdown('<p class="section-label">P-value matrix</p>', unsafe_allow_html=True)
                         pval_rows = {}
                         for v1 in sel_vars:
@@ -547,22 +660,21 @@ elif section == "Data Explorer":
                                 if v1 == v2:
                                     pval_rows[v1][v2] = "—"
                                 elif len(pair) >= 3:
+                                    a, b = pair[v1].values.astype(float), pair[v2].values.astype(float)
                                     if corr_method == "Pearson":
-                                        _, p = stats.pearsonr(pair[v1].values, pair[v2].values)
+                                        _, p = pearson_r(a, b)
                                     elif corr_method == "Spearman":
-                                        _, p = stats.spearmanr(pair[v1].values, pair[v2].values)
+                                        _, p = spearman_r(a, b)
                                     else:
-                                        _, p = stats.kendalltau(pair[v1].values, pair[v2].values)
-                                    pval_rows[v1][v2] = round(p, 4)
+                                        _, p = kendall_tau(a, b)
+                                    pval_rows[v1][v2] = round(p, 4) if p is not None and not np.isnan(p) else "n/a"
                                 else:
                                     pval_rows[v1][v2] = "n/a"
                         st.dataframe(pd.DataFrame(pval_rows), use_container_width=True)
                     else:
                         st.info("Select at least 2 variables for correlation analysis.")
 
-        # ══════════════════════════════════════════════════════════════════════
-        # Tab 5 · RCT ANALYSIS
-        # ══════════════════════════════════════════════════════════════════════
+        # ── Tab 5: RCT Analysis ─────────────────────────────────────────────
         with tab5:
             st.markdown("""
             <div style="background:linear-gradient(135deg,#0d1f3c,#1a7a6e);
@@ -580,35 +692,23 @@ elif section == "Data Explorer":
             if not num_cols:
                 st.info("No numeric variables found in this dataset.")
             else:
-                # ── Setup ──────────────────────────────────────────────────
                 st.markdown('<p class="section-label">Step 1 — RCT configuration</p>', unsafe_allow_html=True)
                 col_s1, col_s2, col_s3 = st.columns(3)
-
                 with col_s1:
-                    treat_var = st.selectbox(
-                        "Treatment indicator column",
-                        ["— Select —"] + df.columns.tolist(),
-                        help="Binary column: 1 = treated, 0 = control",
-                        key="rct_treat"
-                    )
+                    treat_var = st.selectbox("Treatment indicator column",
+                                             ["— Select —"] + df.columns.tolist(),
+                                             help="Binary column: 1 = treated, 0 = control",
+                                             key="rct_treat")
                 with col_s2:
-                    outcome_vars = st.multiselect(
-                        "Outcome variable(s)",
-                        num_cols,
-                        help="Endline / post-intervention outcomes",
-                        key="rct_outcomes"
-                    )
+                    outcome_vars = st.multiselect("Outcome variable(s)", num_cols,
+                                                  help="Endline / post-intervention outcomes",
+                                                  key="rct_outcomes")
                 with col_s3:
-                    baseline_vars = st.multiselect(
-                        "Baseline covariates (balance check)",
-                        num_cols,
-                        help="Pre-treatment characteristics",
-                        key="rct_baseline"
-                    )
+                    baseline_vars = st.multiselect("Baseline covariates (balance check)", num_cols,
+                                                   help="Pre-treatment characteristics",
+                                                   key="rct_baseline")
 
-                alpha = st.slider("Significance level (α)", 0.01, 0.10, 0.05,
-                                  step=0.01, key="rct_alpha",
-                                  help="Threshold for rejecting the null hypothesis")
+                alpha = st.slider("Significance level (α)", 0.01, 0.10, 0.05, step=0.01, key="rct_alpha")
 
                 if treat_var == "— Select —":
                     st.info("👆 Select a binary treatment indicator column (0 = control, 1 = treated) to begin.")
@@ -619,8 +719,7 @@ elif section == "Data Explorer":
                         ctrl_mask  = df[treat_var].astype(float) == 0
                         valid_treat = True
                     else:
-                        st.warning(f"`{treat_var}` contains values {sorted(treat_vals)}. "
-                                   "Treatment indicator must be binary (0/1).")
+                        st.warning(f"`{treat_var}` contains values {sorted(treat_vals)}. Must be binary (0/1).")
                         valid_treat = False
 
                     if valid_treat:
@@ -628,7 +727,6 @@ elif section == "Data Explorer":
                         n_ctrl  = int(ctrl_mask.sum())
                         n_total = n_treat + n_ctrl
 
-                        # ── Sample tiles ──────────────────────────────────
                         st.markdown('<p class="section-label">Step 2 — Sample composition</p>',
                                     unsafe_allow_html=True)
                         st.markdown(f"""
@@ -640,59 +738,51 @@ elif section == "Data Explorer":
                         </div>
                         """, unsafe_allow_html=True)
 
-                        # ── Balance Check ─────────────────────────────────
                         if baseline_vars:
-                            st.markdown('<p class="section-label">Step 3 — Randomisation balance check (baseline covariates)</p>',
+                            st.markdown('<p class="section-label">Step 3 — Randomisation balance check</p>',
                                         unsafe_allow_html=True)
                             balance_rows = []
                             for bv in baseline_vars:
-                                t_ser = df[treat_mask][bv].dropna()
-                                c_ser = df[ctrl_mask][bv].dropna()
-                                if len(t_ser) < 2 or len(c_ser) < 2:
-                                    continue
-                                t_stat, p_val = stats.ttest_ind(t_ser.values, c_ser.values, equal_var=False)
-                                std_pool = np.sqrt((t_ser.var() + c_ser.var()) / 2)
-                                smd = (t_ser.mean() - c_ser.mean()) / std_pool if std_pool > 0 else np.nan
+                                t_arr = df[treat_mask][bv].dropna().values.astype(float)
+                                c_arr = df[ctrl_mask][bv].dropna().values.astype(float)
+                                if len(t_arr) < 2 or len(c_arr) < 2: continue
+                                t_stat, p_val = welch_ttest(t_arr, c_arr)
+                                std_pool = np.sqrt((t_arr.var(ddof=1) + c_arr.var(ddof=1)) / 2)
+                                smd = (t_arr.mean() - c_arr.mean()) / std_pool if std_pool > 0 else np.nan
                                 balance_rows.append({
                                     "Variable": bv,
-                                    "Mean (Treated)": round(float(t_ser.mean()), 4),
-                                    "Mean (Control)": round(float(c_ser.mean()), 4),
-                                    "Raw Difference": round(float(t_ser.mean() - c_ser.mean()), 4),
+                                    "Mean (Treated)": round(float(t_arr.mean()), 4),
+                                    "Mean (Control)": round(float(c_arr.mean()), 4),
+                                    "Raw Difference": round(float(t_arr.mean() - c_arr.mean()), 4),
                                     "Std Mean Diff": round(float(smd), 4) if not np.isnan(smd) else "—",
-                                    "t-stat": round(float(t_stat), 4),
-                                    "p-value": round(float(p_val), 4),
+                                    "t-stat": round(t_stat, 4),
+                                    "p-value": round(p_val, 4),
                                     "Balance": "✅ Balanced" if p_val > alpha else "⚠️ Imbalanced",
                                 })
                             if balance_rows:
-                                bal_df = pd.DataFrame(balance_rows)
-                                st.dataframe(bal_df, use_container_width=True, hide_index=True)
+                                st.dataframe(pd.DataFrame(balance_rows), use_container_width=True, hide_index=True)
                                 n_imbal = sum(1 for r in balance_rows if "⚠️" in r["Balance"])
                                 if n_imbal == 0:
-                                    st.success("✅ All baseline covariates are balanced across arms (p > α). "
-                                               "Randomisation appears successful.")
+                                    st.success("✅ All baseline covariates are balanced across arms.")
                                 else:
-                                    st.warning(f"⚠️ {n_imbal} covariate(s) show imbalance (p ≤ α = {alpha}). "
-                                               "Consider covariate-adjusted estimation or re-randomisation.")
+                                    st.warning(f"⚠️ {n_imbal} covariate(s) show imbalance (p ≤ α = {alpha}).")
 
-                        # ── ATE / ITT Estimation ──────────────────────────
                         if outcome_vars:
                             st.markdown('<p class="section-label">Step 4 — Average Treatment Effect (ATE / ITT)</p>',
                                         unsafe_allow_html=True)
                             ate_rows = []
                             for ov in outcome_vars:
-                                t_ser = df[treat_mask][ov].dropna()
-                                c_ser = df[ctrl_mask][ov].dropna()
-                                if len(t_ser) < 2 or len(c_ser) < 2:
-                                    continue
-                                ate = float(t_ser.mean() - c_ser.mean())
-                                t_stat, p_val = stats.ttest_ind(t_ser.values, c_ser.values, equal_var=False)
-                                se = float(np.sqrt(t_ser.var()/len(t_ser) + c_ser.var()/len(c_ser)))
-                                z = stats.norm.ppf(1 - alpha/2)
-                                ci_lo = ate - z * se
-                                ci_hi = ate + z * se
-                                std_pool = float(np.sqrt((t_ser.var() + c_ser.var()) / 2))
+                                t_arr = df[treat_mask][ov].dropna().values.astype(float)
+                                c_arr = df[ctrl_mask][ov].dropna().values.astype(float)
+                                if len(t_arr) < 2 or len(c_arr) < 2: continue
+                                ate = float(t_arr.mean() - c_arr.mean())
+                                t_stat, p_val = welch_ttest(t_arr, c_arr)
+                                se = float(np.sqrt(t_arr.var(ddof=1)/len(t_arr) + c_arr.var(ddof=1)/len(c_arr)))
+                                z_crit = norm_ppf(1.0 - alpha/2)
+                                ci_lo, ci_hi = ate - z_crit*se, ate + z_crit*se
+                                std_pool = float(np.sqrt((t_arr.var(ddof=1) + c_arr.var(ddof=1)) / 2))
                                 cohen_d = ate / std_pool if std_pool > 0 else np.nan
-                                pct_chg = (ate / c_ser.mean() * 100) if c_ser.mean() != 0 else np.nan
+                                pct_chg = (ate / c_arr.mean() * 100) if c_arr.mean() != 0 else np.nan
 
                                 if p_val <= alpha:
                                     sig_label = '<span class="sig-badge sig-yes">Significant ✓</span>'
@@ -703,16 +793,15 @@ elif section == "Data Explorer":
 
                                 ate_rows.append({
                                     "Outcome": ov,
-                                    "N (T)": len(t_ser),
-                                    "N (C)": len(c_ser),
-                                    "Mean (T)": round(float(t_ser.mean()), 4),
-                                    "Mean (C)": round(float(c_ser.mean()), 4),
+                                    "N (T)": len(t_arr), "N (C)": len(c_arr),
+                                    "Mean (T)": round(float(t_arr.mean()), 4),
+                                    "Mean (C)": round(float(c_arr.mean()), 4),
                                     "ATE": round(ate, 4),
                                     "Std Error": round(se, 4),
                                     f"CI {int((1-alpha)*100)}% Lo": round(ci_lo, 4),
                                     f"CI {int((1-alpha)*100)}% Hi": round(ci_hi, 4),
-                                    "t-stat": round(float(t_stat), 4),
-                                    "p-value": round(float(p_val), 4),
+                                    "t-stat": round(t_stat, 4),
+                                    "p-value": round(p_val, 4),
                                     "Cohen's d": round(cohen_d, 4) if not np.isnan(cohen_d) else "—",
                                     "% Change": round(pct_chg, 2) if not np.isnan(pct_chg) else "—",
                                     "_sig_html": sig_label,
@@ -722,7 +811,6 @@ elif section == "Data Explorer":
                                 display_df = pd.DataFrame(ate_rows).drop(columns=["_sig_html"])
                                 st.dataframe(display_df, use_container_width=True, hide_index=True)
 
-                                # Visual significance cards
                                 st.markdown('<p class="section-label">Significance summary</p>',
                                             unsafe_allow_html=True)
                                 sig_html = ""
@@ -751,44 +839,40 @@ elif section == "Data Explorer":
                                 st.download_button("⬇️ Download ATE results CSV", csv_buf,
                                                    file_name="rct_ate_results.csv", mime="text/csv")
 
-                        # ── Non-parametric test ───────────────────────────
                         if outcome_vars:
                             with st.expander("🔬 Non-parametric test — Mann-Whitney U"):
                                 st.markdown("Robust alternative when outcome distributions deviate from normality.")
                                 mw_rows = []
                                 for ov in outcome_vars:
-                                    t_ser = df[treat_mask][ov].dropna()
-                                    c_ser = df[ctrl_mask][ov].dropna()
-                                    if len(t_ser) < 2 or len(c_ser) < 2:
-                                        continue
-                                    u_stat, p_val = stats.mannwhitneyu(t_ser.values, c_ser.values, alternative="two-sided")
+                                    t_arr = df[treat_mask][ov].dropna().values.astype(float)
+                                    c_arr = df[ctrl_mask][ov].dropna().values.astype(float)
+                                    if len(t_arr) < 2 or len(c_arr) < 2: continue
+                                    u_stat, p_val = mann_whitney_u(t_arr, c_arr)
                                     mw_rows.append({
                                         "Outcome": ov,
-                                        "Median (T)": round(float(t_ser.median()), 4),
-                                        "Median (C)": round(float(c_ser.median()), 4),
-                                        "Median Diff": round(float(t_ser.median() - c_ser.median()), 4),
-                                        "U-statistic": round(float(u_stat), 2),
-                                        "p-value": round(float(p_val), 4),
+                                        "Median (T)": round(float(np.median(t_arr)), 4),
+                                        "Median (C)": round(float(np.median(c_arr)), 4),
+                                        "Median Diff": round(float(np.median(t_arr) - np.median(c_arr)), 4),
+                                        "U-statistic": round(u_stat, 2),
+                                        "p-value": round(p_val, 4),
                                         "Significant": "Yes ✓" if p_val <= alpha else "No ✗",
                                     })
                                 if mw_rows:
                                     st.dataframe(pd.DataFrame(mw_rows), use_container_width=True, hide_index=True)
 
-                        # ── Attrition / missing check ─────────────────────
                         if outcome_vars:
                             with st.expander("📋 Attrition check (missing outcomes by arm)"):
-                                st.markdown("Tests whether missingness in outcomes is differential across arms, "
-                                            "which could bias ATE estimates.")
+                                st.markdown("Tests whether missingness in outcomes is differential across arms.")
                                 attr_rows = []
                                 for ov in outcome_vars:
-                                    miss_t = df[treat_mask][ov].isna().sum()
-                                    miss_c = df[ctrl_mask][ov].isna().sum()
+                                    miss_t = int(df[treat_mask][ov].isna().sum())
+                                    miss_c = int(df[ctrl_mask][ov].isna().sum())
                                     pct_t = round(100 * miss_t / n_treat, 2) if n_treat else 0
                                     pct_c = round(100 * miss_c / n_ctrl, 2) if n_ctrl else 0
-                                    obs_t = df[treat_mask][ov].notna().astype(int)
-                                    obs_c = df[ctrl_mask][ov].notna().astype(int)
+                                    obs_t = df[treat_mask][ov].notna().astype(int).values.astype(float)
+                                    obs_c = df[ctrl_mask][ov].notna().astype(int).values.astype(float)
                                     if obs_t.sum() + obs_c.sum() > 0:
-                                        t_stat, p_val = stats.ttest_ind(obs_t.values, obs_c.values)
+                                        t_stat, p_val = welch_ttest(obs_t, obs_c)
                                     else:
                                         t_stat, p_val = np.nan, np.nan
                                     attr_rows.append({
@@ -801,7 +885,6 @@ elif section == "Data Explorer":
                                 if attr_rows:
                                     st.dataframe(pd.DataFrame(attr_rows), use_container_width=True, hide_index=True)
 
-                        # ── Effect size guide ─────────────────────────────
                         with st.expander("📖 Interpretation guide"):
                             st.markdown("""
 **Cohen's d — Effect Size**
@@ -816,10 +899,11 @@ elif section == "Data Explorer":
 **Key Terms**
 
 - **ATE** — Average Treatment Effect: mean difference (treated − control)
-- **ITT** — Intent-to-Treat: this analysis assumes full compliance with assignment
+- **ITT** — Intent-to-Treat: assumes full compliance with assignment
 - **Std Mean Diff** — Standardised difference; values < 0.1 indicate good balance
 - **CI** — Confidence interval using normal approximation
 - **Mann-Whitney U** — Non-parametric test on medians; use when data are non-normal
+- **Normality test** — Jarque-Bera statistic (no scipy required; directionally equivalent to Shapiro-Wilk)
 - **Attrition check** — Differential missingness can introduce selection bias into ATE
 """)
 
@@ -854,8 +938,7 @@ elif section == "Indicators Tracker":
 
     st.dataframe(
         indicators[["Indicator", "Domain", "Data Source", "Status", "Wave 1 Target"]],
-        use_container_width=True,
-        hide_index=True,
+        use_container_width=True, hide_index=True,
     )
 
     st.markdown("---")
